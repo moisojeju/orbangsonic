@@ -1,1 +1,713 @@
-# orbangsonic
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>오르방 소닉 러너</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #00BFFF 0%, #1E90FF 50%, #4169E1 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+        }
+
+        .game-container {
+            position: relative;
+            text-align: center;
+        }
+
+        #gameCanvas {
+            border: 4px solid #FFD700;
+            background: linear-gradient(to bottom, #87CEEB 0%, #32CD32 40%, #228B22 100%);
+            box-shadow: 0 0 30px rgba(255, 215, 0, 0.8);
+            border-radius: 10px;
+        }
+
+        .game-ui {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            color: #FFD700;
+            font-size: 22px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            font-weight: bold;
+        }
+
+        .speed-meter {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            color: #FFD700;
+            font-size: 18px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+        }
+
+        .controls {
+            color: #fff;
+            margin-top: 20px;
+            font-size: 16px;
+            background: rgba(0,0,0,0.7);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        button {
+            background: linear-gradient(45deg, #FF6347, #FF1493);
+            border: none;
+            color: white;
+            padding: 15px 30px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 18px;
+            margin: 8px 4px;
+            cursor: pointer;
+            border-radius: 30px;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+            box-shadow: 0 4px 15px rgba(255, 100, 71, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(255, 100, 71, 0.7);
+        }
+
+        .game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.95);
+            border: 4px solid #FF6347;
+            color: #333;
+            padding: 30px;
+            border-radius: 20px;
+            text-align: center;
+            font-size: 24px;
+            box-shadow: 0 0 40px rgba(0,0,0,0.7);
+            display: none;
+        }
+
+        .boost-effect {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="game-ui">
+            <div>점수: <span id="score">0</span></div>
+            <div>링: <span id="rings">0</span></div>
+        </div>
+        <div class="speed-meter">
+            <div>속도: <span id="speed">0</span> km/h</div>
+        </div>
+        <canvas id="gameCanvas" width="1000" height="600"></canvas>
+        <div class="boost-effect" id="boostEffect"></div>
+        <img id="orbangImg" src="오르방.png" style="display: none;" />
+        <div class="game-over" id="gameOver">
+            <h2>게임 오버!</h2>
+            <p>최종 점수: <span id="finalScore">0</span></p>
+            <p>수집한 링: <span id="finalRings">0</span></p>
+            <button onclick="restartGame()">다시 달리기</button>
+        </div>
+        <div class="controls">
+            <button id="startBtn" onclick="startGame()">오르방과 함께 달리기!</button>
+            <div style="margin-top: 15px;">
+                <p><strong>조작법:</strong></p>
+                <p>↑ 화살표 키 또는 스페이스바: 점프</p>
+                <p>↓ 화살표 키: 슬라이딩</p>
+                <p>→ 화살표 키: 부스트 (링 소모)</p>
+                <p>황금 링을 모으고 장애물을 피하세요!</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const orbangImg = document.getElementById('orbangImg');
+        
+        let gameRunning = false;
+        let gameSpeed = 6;
+        let score = 0;
+        let rings = 0;
+        let distance = 0;
+
+        const player = {
+            x: 150,
+            y: 450,
+            width: 50,
+            height: 60,
+            velocityY: 0,
+            jumpPower: 18,
+            onGround: true,
+            sliding: false,
+            boosting: false,
+            boostTime: 0,
+            animFrame: 0
+        };
+
+        const gravity = 0.8;
+        const groundY = 450;
+
+        const obstacles = [];
+        const ringItems = [];
+        const particles = [];
+        const backgroundElements = [];
+
+        let lastObstacleSpawn = 0;
+        let lastRingSpawn = 0;
+
+        const keys = {
+            up: false,
+            down: false,
+            right: false,
+            space: false
+        };
+
+        function initBackground() {
+            backgroundElements.length = 0;
+            // 구름들
+            for (let i = 0; i < 8; i++) {
+                backgroundElements.push({
+                    type: 'cloud',
+                    x: i * 300 + Math.random() * 200,
+                    y: 50 + Math.random() * 100,
+                    size: 30 + Math.random() * 20,
+                    speed: 1 + Math.random() * 2
+                });
+            }
+            // 나무들
+            for (let i = 0; i < 12; i++) {
+                backgroundElements.push({
+                    type: 'tree',
+                    x: i * 200 + Math.random() * 100,
+                    y: groundY + 50,
+                    size: 40 + Math.random() * 20,
+                    speed: 3 + Math.random()
+                });
+            }
+        }
+
+        function drawBackground() {
+            // 그라데이션 배경
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#87CEEB');
+            gradient.addColorStop(0.6, '#32CD32');
+            gradient.addColorStop(1, '#228B22');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 배경 요소들
+            backgroundElements.forEach(element => {
+                if (element.type === 'cloud') {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                    ctx.beginPath();
+                    ctx.arc(element.x, element.y, element.size, 0, Math.PI * 2);
+                    ctx.arc(element.x + 20, element.y, element.size * 0.8, 0, Math.PI * 2);
+                    ctx.arc(element.x - 15, element.y + 5, element.size * 0.6, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (element.type === 'tree') {
+                    // 나무 줄기
+                    ctx.fillStyle = '#8B4513';
+                    ctx.fillRect(element.x, element.y - element.size, 10, element.size);
+                    // 나무 잎
+                    ctx.fillStyle = '#228B22';
+                    ctx.beginPath();
+                    ctx.arc(element.x + 5, element.y - element.size, element.size * 0.6, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                
+                element.x -= element.speed * gameSpeed;
+                if (element.x < -100) {
+                    element.x = canvas.width + Math.random() * 200;
+                }
+            });
+
+            // 지면
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(0, groundY + 60, canvas.width, 50);
+        }
+
+        function drawPlayer() {
+            ctx.save();
+            
+            // 부스트 이펙트
+            if (player.boosting) {
+                ctx.shadowColor = '#FFD700';
+                ctx.shadowBlur = 20;
+                
+                // 잔상 효과
+                for (let i = 1; i <= 3; i++) {
+                    ctx.globalAlpha = 0.3 / i;
+                    drawOrbangCharacter(player.x - i * 15, player.y);
+                }
+                ctx.globalAlpha = 1;
+            }
+            
+            drawOrbangCharacter(player.x, player.y);
+            ctx.restore();
+            
+            // 달리기 파티클
+            if (player.onGround && Math.random() < 0.3) {
+                particles.push({
+                    x: player.x,
+                    y: player.y + player.height,
+                    velocityX: -3 - Math.random() * 3,
+                    velocityY: -2 - Math.random() * 2,
+                    size: 3 + Math.random() * 3,
+                    life: 20,
+                    color: '#8B4513'
+                });
+            }
+        }
+
+        function drawOrbangCharacter(x, y) {
+            const frameOffset = Math.floor(player.animFrame / 5) % 2;
+            
+            if (player.sliding) {
+                y += 20;
+                player.height = 40;
+            } else {
+                player.height = 60;
+            }
+            
+            // 오르방 캐릭터 스타일로 그리기
+            // 몸체 (파란 작업복)
+            ctx.fillStyle = '#4169E1';
+            ctx.beginPath();
+            ctx.roundRect(x + 5, y + 20, 40, 35, 8);
+            ctx.fill();
+            
+            // 머리 (회색)
+            ctx.fillStyle = '#C0C0C0';
+            ctx.beginPath();
+            ctx.arc(x + 25, y + 15, 18, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 모자 (주황색)
+            ctx.fillStyle = '#FF8C42';
+            ctx.beginPath();
+            ctx.ellipse(x + 25, y + 5, 20, 12, 0, Math.PI, 0);
+            ctx.fill();
+            
+            // 모자 꼭지
+            ctx.fillStyle = '#228B22';
+            ctx.beginPath();
+            ctx.arc(x + 25, y, 4, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 얼굴
+            ctx.fillStyle = '#000';
+            // 눈
+            ctx.beginPath();
+            ctx.arc(x + 20, y + 12, 2, 0, Math.PI * 2);
+            ctx.arc(x + 30, y + 12, 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 볼터치
+            ctx.fillStyle = '#FFB6C1';
+            ctx.beginPath();
+            ctx.arc(x + 15, y + 18, 3, 0, Math.PI * 2);
+            ctx.arc(x + 35, y + 18, 3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 팔 (달리기 동작)
+            ctx.fillStyle = '#C0C0C0';
+            const armOffset = frameOffset * 10 - 5;
+            ctx.beginPath();
+            ctx.arc(x + 10 + armOffset, y + 30, 6, 0, Math.PI * 2);
+            ctx.arc(x + 40 - armOffset, y + 30, 6, 0, Math.PI * 2);
+            ctx.fill();
+            
+            if (!player.sliding) {
+                // 다리 (달리기 동작)
+                ctx.fillStyle = '#C0C0C0';
+                const legOffset = frameOffset * 8 - 4;
+                ctx.beginPath();
+                ctx.arc(x + 15 + legOffset, y + 55, 6, 0, Math.PI * 2);
+                ctx.arc(x + 35 - legOffset, y + 55, 6, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            player.animFrame++;
+        }
+
+        function createObstacle() {
+            const now = Date.now();
+            if (now - lastObstacleSpawn > 2000 - gameSpeed * 50) {
+                const obstacleType = Math.random();
+                if (obstacleType < 0.6) {
+                    // 가시
+                    obstacles.push({
+                        x: canvas.width,
+                        y: groundY,
+                        width: 30,
+                        height: 40,
+                        type: 'spike',
+                        color: '#8B0000'
+                    });
+                } else {
+                    // 높은 장애물
+                    obstacles.push({
+                        x: canvas.width,
+                        y: groundY - 40,
+                        width: 25,
+                        height: 80,
+                        type: 'wall',
+                        color: '#696969'
+                    });
+                }
+                lastObstacleSpawn = now;
+            }
+        }
+
+        function createRing() {
+            const now = Date.now();
+            if (now - lastRingSpawn > 1000 - gameSpeed * 20) {
+                const ringY = groundY - Math.random() * 200 - 50;
+                ringItems.push({
+                    x: canvas.width,
+                    y: ringY,
+                    width: 25,
+                    height: 25,
+                    rotation: 0,
+                    collected: false
+                });
+                lastRingSpawn = now;
+            }
+        }
+
+        function drawObstacles() {
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obstacle = obstacles[i];
+                
+                // 그림자
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                ctx.fillRect(obstacle.x + 3, obstacle.y + 3, obstacle.width, obstacle.height);
+                
+                ctx.fillStyle = obstacle.color;
+                if (obstacle.type === 'spike') {
+                    // 가시 그리기
+                    ctx.beginPath();
+                    ctx.moveTo(obstacle.x + obstacle.width/2, obstacle.y);
+                    ctx.lineTo(obstacle.x, obstacle.y + obstacle.height);
+                    ctx.lineTo(obstacle.x + obstacle.width, obstacle.y + obstacle.height);
+                    ctx.closePath();
+                    ctx.fill();
+                } else {
+                    // 벽 그리기
+                    ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+                }
+                
+                obstacle.x -= gameSpeed;
+                
+                if (obstacle.x < -obstacle.width) {
+                    obstacles.splice(i, 1);
+                }
+            }
+        }
+
+        function drawRings() {
+            for (let i = ringItems.length - 1; i >= 0; i--) {
+                const ring = ringItems[i];
+                if (ring.collected) continue;
+                
+                ring.rotation += 0.2;
+                
+                ctx.save();
+                ctx.translate(ring.x + ring.width/2, ring.y + ring.height/2);
+                ctx.rotate(ring.rotation);
+                
+                // 링 그림자
+                ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                ctx.beginPath();
+                ctx.arc(2, 2, 12, 0, Math.PI * 2);
+                ctx.arc(2, 2, 6, 0, Math.PI * 2);
+                ctx.fill('evenodd');
+                
+                // 메인 링
+                ctx.fillStyle = '#FFD700';
+                ctx.beginPath();
+                ctx.arc(0, 0, 12, 0, Math.PI * 2);
+                ctx.arc(0, 0, 6, 0, Math.PI * 2);
+                ctx.fill('evenodd');
+                
+                // 링 하이라이트
+                ctx.fillStyle = '#FFF';
+                ctx.beginPath();
+                ctx.arc(-4, -4, 3, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.restore();
+                
+                ring.x -= gameSpeed;
+                
+                if (ring.x < -ring.width) {
+                    ringItems.splice(i, 1);
+                }
+            }
+        }
+
+        function drawParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const particle = particles[i];
+                
+                ctx.globalAlpha = particle.life / 20;
+                ctx.fillStyle = particle.color;
+                ctx.beginPath();
+                ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+                
+                particle.x += particle.velocityX;
+                particle.y += particle.velocityY;
+                particle.velocityY += 0.3;
+                particle.life--;
+                
+                if (particle.life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+
+        function updatePlayer() {
+            // 점프
+            if ((keys.up || keys.space) && player.onGround) {
+                player.velocityY = -player.jumpPower;
+                player.onGround = false;
+            }
+            
+            // 슬라이딩
+            player.sliding = keys.down && player.onGround;
+            
+            // 부스트
+            if (keys.right && rings > 0 && !player.boosting) {
+                player.boosting = true;
+                player.boostTime = 60;
+                rings--;
+                gameSpeed = Math.min(gameSpeed + 3, 15);
+                document.getElementById('boostEffect').style.opacity = '1';
+                updateUI();
+            }
+            
+            if (player.boosting) {
+                player.boostTime--;
+                if (player.boostTime <= 0) {
+                    player.boosting = false;
+                    gameSpeed = Math.max(gameSpeed - 3, 6);
+                    document.getElementById('boostEffect').style.opacity = '0';
+                }
+            }
+            
+            // 중력 적용
+            player.velocityY += gravity;
+            player.y += player.velocityY;
+            
+            // 지면 충돌
+            if (player.y >= groundY) {
+                player.y = groundY;
+                player.velocityY = 0;
+                player.onGround = true;
+            }
+        }
+
+        function checkCollisions() {
+            // 장애물과의 충돌
+            obstacles.forEach(obstacle => {
+                if (player.x < obstacle.x + obstacle.width &&
+                    player.x + player.width > obstacle.x &&
+                    player.y < obstacle.y + obstacle.height &&
+                    player.y + player.height > obstacle.y) {
+                    
+                    if (!player.boosting) {
+                        gameOver();
+                    } else {
+                        // 부스트 중에는 장애물 파괴
+                        const index = obstacles.indexOf(obstacle);
+                        obstacles.splice(index, 1);
+                        score += 50;
+                        
+                        // 파괴 파티클
+                        for (let i = 0; i < 8; i++) {
+                            particles.push({
+                                x: obstacle.x + obstacle.width/2,
+                                y: obstacle.y + obstacle.height/2,
+                                velocityX: (Math.random() - 0.5) * 10,
+                                velocityY: (Math.random() - 0.5) * 10,
+                                size: 4,
+                                life: 30,
+                                color: obstacle.color
+                            });
+                        }
+                    }
+                }
+            });
+            
+            // 링과의 충돌
+            ringItems.forEach(ring => {
+                if (!ring.collected &&
+                    player.x < ring.x + ring.width &&
+                    player.x + player.width > ring.x &&
+                    player.y < ring.y + ring.height &&
+                    player.y + player.height > ring.y) {
+                    
+                    ring.collected = true;
+                    rings++;
+                    score += 10;
+                    
+                    // 수집 파티클
+                    for (let i = 0; i < 6; i++) {
+                        particles.push({
+                            x: ring.x + ring.width/2,
+                            y: ring.y + ring.height/2,
+                            velocityX: (Math.random() - 0.5) * 8,
+                            velocityY: (Math.random() - 0.5) * 8,
+                            size: 3,
+                            life: 25,
+                            color: '#FFD700'
+                        });
+                    }
+                }
+            });
+        }
+
+        function updateUI() {
+            document.getElementById('score').textContent = score;
+            document.getElementById('rings').textContent = rings;
+            document.getElementById('speed').textContent = Math.round(gameSpeed * 20);
+        }
+
+        function gameLoop() {
+            if (!gameRunning) return;
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            drawBackground();
+            updatePlayer();
+            drawPlayer();
+            
+            createObstacle();
+            createRing();
+            drawObstacles();
+            drawRings();
+            drawParticles();
+            
+            checkCollisions();
+            
+            distance += gameSpeed;
+            score += Math.floor(gameSpeed / 2);
+            
+            // 게임 속도 점진적 증가
+            if (distance % 1000 < gameSpeed) {
+                gameSpeed = Math.min(gameSpeed + 0.1, 20);
+            }
+            
+            updateUI();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function startGame() {
+            gameRunning = true;
+            gameSpeed = 6;
+            score = 0;
+            rings = 0;
+            distance = 0;
+            
+            player.x = 150;
+            player.y = groundY;
+            player.velocityY = 0;
+            player.onGround = true;
+            player.sliding = false;
+            player.boosting = false;
+            player.animFrame = 0;
+            
+            obstacles.length = 0;
+            ringItems.length = 0;
+            particles.length = 0;
+            
+            initBackground();
+            updateUI();
+            
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('gameOver').style.display = 'none';
+            
+            gameLoop();
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            document.getElementById('finalScore').textContent = score;
+            document.getElementById('finalRings').textContent = rings;
+            document.getElementById('gameOver').style.display = 'block';
+            document.getElementById('boostEffect').style.opacity = '0';
+        }
+
+        function restartGame() {
+            document.getElementById('startBtn').style.display = 'inline-block';
+            startGame();
+        }
+
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case 'ArrowUp':
+                    keys.up = true;
+                    e.preventDefault();
+                    break;
+                case 'ArrowDown':
+                    keys.down = true;
+                    e.preventDefault();
+                    break;
+                case 'ArrowRight':
+                    keys.right = true;
+                    e.preventDefault();
+                    break;
+                case ' ':
+                    keys.space = true;
+                    e.preventDefault();
+                    break;
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            switch(e.key) {
+                case 'ArrowUp':
+                    keys.up = false;
+                    break;
+                case 'ArrowDown':
+                    keys.down = false;
+                    break;
+                case 'ArrowRight':
+                    keys.right = false;
+                    break;
+                case ' ':
+                    keys.space = false;
+                    break;
+            }
+        });
+
+        // 초기 설정
+        initBackground();
+        drawBackground();
+        drawOrbangCharacter(player.x, player.y);
+    </script>
+</body>
+</html>
